@@ -1,0 +1,83 @@
+<?xml version='1.0' encoding='utf-8'?>
+<plugin id="cordova-plugin-colorblobselector" version="1.0.0" xmlns="http://apache.org/cordova/ns/plugins/1.0" xmlns:android="http://schemas.android.com/apk/res/android">
+    <name>ColorBlobSelector</name>
+    <js-module name="colorblobselector" src="www/colorblobselector-cdv-plugin.js">
+        <clobbers target="navigator.colorblobselector" />
+    </js-module>
+
+
+    <description>Color Blob Selector using OpenCV</description>
+    <repo>https://github.com/ballenjr/cordova-plugin-colorblobselector</repo>
+    <issue>https://github.com/ballenjr/cordova-plugin-colorblobselector/issues</issue>
+
+    <license>Apache 2.0</license>
+
+    <keywords>opencv,color,selector</keywords>
+
+    <engines>
+      <engine name="cordova-android" version="5.1.1" />
+      <engine name="cordova-ios" version=">=3.0.0" />
+    </engines>
+
+    <!-- android -->
+    <platform name="android">
+
+        <info>
+             Requires OpenCV 3.1.0 or later.
+        </info>
+
+        <config-file target="res/xml/config.xml" parent="/*">
+
+        </config-file>
+
+        <framework src="src/android/opencv.gradle" custom="true" type="gradleReference" />
+
+        <!-- plugin src files -->
+        <source-file src="src/android/plugin/io/light/perpetual/ColorBlobDetector.java" target-dir="src/plugin/io/light/perpetual" />
+        <source-file src="src/android/plugin/io/light/perpetual/ColorBlobPlugin.java" target-dir="src/plugin/io/light/perpetual" />
+
+        <resource-file src="src/android/res/layout/color_blob_detection_surface_view.xml" target="res/layout/color_blob_detection_surface_view.xml" />
+        <resource-file src="src/android/res/values/integers.xml" target="res/values/integers.xml" />
+
+        <config-file target="AndroidManifest.xml" parent="/manifest">
+            <uses-permission android:name="android.permission.CAMERA"/>
+            <uses-feature android:name="android.hardware.camera" android:required="false"/>
+            <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+            <uses-feature android:name="android.hardware.camera.front" android:required="false"/>
+            <uses-feature android:name="android.hardware.camera.front.autofocus" android:required="false"/>
+        </config-file>
+
+        <config-file target="config.xml" parent="/*">
+            <feature name="ColorBlobPlugin">
+                <param name="android-package" value="plugin.io.light.perpetual.ColorBlobPlugin"/>
+            </feature>
+        </config-file>
+    </platform>
+
+    <!-- ios -->
+    <platform name="ios">
+
+        <info>
+            Requires OpenCV 3.1.0 or later.
+        </info>
+
+        <config-file target="config.xml" parent="/*">
+        </config-file>
+
+        <config-file target="*-Info.plist" parent="CFBundleURLTypes">
+          <array>
+            <dict>
+              <key>CFBundleTypeRole</key>
+              <string>Editor</string>
+              <key>CFBundleURLName</key>
+              <string>$PACKAGE_NAME</string>
+              <key>CFBundleURLSchemes</key>
+              <array>
+                <string>$PACKAGE_NAME</string>
+              </array>
+            </dict>
+          </array>
+        </config-file>
+
+    </platform>
+</plugin>

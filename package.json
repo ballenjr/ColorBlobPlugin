@@ -1,0 +1,37 @@
+{
+  "name": "cordova-plugin-colorblobselector",
+  "version": "0.0.1",
+  "description": "Color Blob Selector using OpenCV",
+  "cordova": {
+    "id": "cordova-plugin-colorblobselector",
+    "platforms": [
+      "android",
+      "ios"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ballenjr/cordova-plugin-colorblobselector.git"
+  },
+  "keywords": [
+    "opencv",
+    "color",
+    "selector",
+    "computer vision",
+    "ecosystem:cordova",
+    "cordova-android",
+    "cordova-ios"
+  ],
+  "engines": [
+    {
+      "name": "cordova",
+      "version": ">=6.1.1"
+    }
+  ],
+  "author": "Brent Allen",
+  "license": "Apache 2.0",
+  "bugs": {
+    "url": "https://github.com/ballenjr/cordova-plugin-colorblobselector/issues"
+  },
+  "homepage": "https://github.com/ballenjr/cordova-plugin-colorblobselector#readme"
+}
