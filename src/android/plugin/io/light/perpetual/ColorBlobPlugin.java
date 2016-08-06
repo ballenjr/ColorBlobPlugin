@@ -8,10 +8,8 @@ import android.util.Base64;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.SurfaceView;
-import android.view.TouchDelegate;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
 import android.view.WindowManager;
 
 import org.apache.cordova.CallbackContext;
@@ -22,14 +20,13 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.opencv.android.BaseLoaderCallback;
 import org.opencv.android.CameraBridgeViewBase;
-import org.opencv.android.JavaCameraView;
+import org.opencv.android.CameraGLSurfaceView;
 import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
-import org.opencv.core.MatOfInt;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
@@ -37,23 +34,21 @@ import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
-import org.opencv.utils.Converters;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.math.RoundingMode;
-import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 
-public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListener, CameraBridgeViewBase.CvCameraViewListener2 {
+public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListener, CameraGLSurfaceView.CameraTextureListener, CameraBridgeViewBase.CvCameraViewListener2 {
 
     public static final String TAG = "ColorBlobPlugin";
 
     private static CordovaInterface _cordova;
     private static CordovaWebView _webView;
+    private static List<Integer> lock = new ArrayList<>();
 
     private boolean mIsColorSelected = false;
     private Mat mRgba;
@@ -127,6 +122,11 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
 
     public void onCameraViewStopped() {
         mRgba.release();
+    }
+
+    @Override
+    public boolean onCameraTexture(int i, int i1, int i2, int i3) {
+        return false;
     }
 
     public boolean onTouch(View v, MotionEvent event) {
@@ -238,6 +238,7 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
         _cordova = cordova;
         _webView = webView;
         orientation = _cordova.getActivity().getRequestedOrientation();
+
         super.initialize(cordova, webView);
     }
 
@@ -370,6 +371,7 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
             }
 
             private void getDataURL() throws Exception {
+                //synchronized (lock) {
                 List<MatOfPoint> contours = mDetector.getContours();
                 Mat last;
                 synchronized (lastFrame) {
@@ -412,10 +414,11 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
                 new Timer().schedule(new TimerTask() {
                     @Override
                     public void run() {
-                        synchronized (toShow) {
-                            toShow.release();
-                            toShow = null;
-                        }
+                        if (toShow != null)
+                            synchronized (toShow) {
+                                toShow.release();
+                                toShow = null;
+                            }
                     }
                 }, 5000);
 
@@ -432,6 +435,7 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
                 bgr.release();
                 buf.release();
                 foreground.release();
+                //}
             }
 
         });

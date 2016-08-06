@@ -1,5 +1,8 @@
 package plugin.io.light.perpetual;
 
+import android.graphics.Color;
+import android.util.Log;
+
 import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
@@ -8,6 +11,10 @@ import org.opencv.core.Scalar;
 import org.opencv.imgproc.Imgproc;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Dictionary;
 import java.util.Hashtable;
 import java.util.Iterator;
@@ -39,47 +46,104 @@ public class ColorBlobDetector {
         mColorRadius = radius;
     }
 
-    private List<Dictionary<String, Scalar>> colors = new ArrayList<>();
+    private List<ColorRange> colors = new ArrayList<>();
 
     public void resetColors() {
         colors.clear();
     }
 
+    private class ColorRange extends Object implements Comparable<ColorRange> {
+
+        public Scalar upper;
+        public Scalar lower;
+
+        public ColorRange(Scalar upper, Scalar lower) {
+            this.upper = upper;
+            this.lower = lower;
+        }
+
+        @Override
+        public int compareTo(ColorRange another) {
+            double low = this.lower.val[0] + this.lower.val[1] + this.lower.val[2];
+            double high = another.lower.val[0] + another.lower.val[1] + another.lower.val[2];
+            return low > high ? -1 : 1;
+        }
+
+    }
     public void setHsvColor(Scalar hsvColor) {
-        double minH = (hsvColor.val[0] >= mColorRadius.val[0]) ? hsvColor.val[0]-mColorRadius.val[0] : 0;
-        double maxH = (hsvColor.val[0]+mColorRadius.val[0] <= 255) ? hsvColor.val[0]+mColorRadius.val[0] : 255;
+        double minHue = (hsvColor.val[0] >= mColorRadius.val[0]) ? hsvColor.val[0]-mColorRadius.val[0] : 0;
+        double maxHue = (hsvColor.val[0]+mColorRadius.val[0] <= 255) ? hsvColor.val[0]+mColorRadius.val[0] : 255;
+        double minSat = hsvColor.val[1] - mColorRadius.val[1];
+        double maxSat = hsvColor.val[1] + mColorRadius.val[1];
+        double minVal = hsvColor.val[2] - mColorRadius.val[2];
+        double maxVal = hsvColor.val[2] + mColorRadius.val[2];
 
-        mLowerBound.val[0] = minH;
-        mUpperBound.val[0] = maxH;
+        Scalar lower = new Scalar(0);
+        Scalar upper = new Scalar(0);
+        lower.val[0] = minHue;
+        upper.val[0] = maxHue;
 
-        mLowerBound.val[1] = hsvColor.val[1] - mColorRadius.val[1];
-        mUpperBound.val[1] = hsvColor.val[1] + mColorRadius.val[1];
+        lower.val[1] = minSat;
+        upper.val[1] = maxSat;
 
-        mLowerBound.val[2] = hsvColor.val[2] - mColorRadius.val[2];
-        mUpperBound.val[2] = hsvColor.val[2] + mColorRadius.val[2];
+        lower.val[2] = minVal;
+        upper.val[2] = maxVal;
 
-        mLowerBound.val[3] = 0;
-        mUpperBound.val[3] = 255;
+        lower.val[3] = 0;
+        upper.val[3] = 255;
 
+        Collections.sort(colors);
         synchronized (colors) {
             Boolean add = true;
-            for(Dictionary<String, Scalar> d : colors) {
-                Scalar l = d.get(LOWERKEY);
-                Scalar u = d.get(UPPERKEY);
-                if (l.val[0] == minH && u.val[0] == maxH &&
-                        l.val[1] == mLowerBound.val[1] &&
-                        u.val[1] == mUpperBound.val[1] &&
-                        l.val[2] == mLowerBound.val[2] &&
-                        u.val[2] == mUpperBound.val[2]) {
+
+            for(ColorRange current : colors.toArray(new ColorRange[] {})) {
+                int index = colors.indexOf(current) + 1;
+                if (index < colors.size()) {
+                    ColorRange next = colors.get(index);
+                    double diffHue = next.lower.val[0] - current.lower.val[0];
+                    double diffSat = next.lower.val[1] - current.lower.val[1];
+                    double diffVal = next.lower.val[2] - current.lower.val[2];
+                    boolean minHueCanApply = diffHue < mColorRadius.val[0] && diffHue > -1*mColorRadius.val[0];
+                    boolean minSatCanApply = diffSat < mColorRadius.val[1] && diffSat > -1*mColorRadius.val[1];
+                    boolean minValCanApply = diffVal < mColorRadius.val[2] && diffVal > -1*mColorRadius.val[2];
+                    if (minHueCanApply && minSatCanApply && minValCanApply) {
+                        next.lower.val[0] += diffHue;
+                        next.lower.val[1] += diffSat;
+                        if (diffVal < 0) next.lower.val[2] += diffVal;
+                    }
+                    diffHue = next.upper.val[0] - current.upper.val[0];
+                    diffSat = next.upper.val[1] - current.upper.val[1];
+                    diffVal = next.upper.val[2] - current.upper.val[2];
+                    boolean maxHueCanApply = diffHue < mColorRadius.val[0] && diffHue > -1*mColorRadius.val[0];
+                    boolean maxSatCanApply = diffSat < mColorRadius.val[1] && diffSat > -1*mColorRadius.val[1];
+                    boolean maxValCanApply = diffVal < mColorRadius.val[2] && diffVal > -1*mColorRadius.val[2];
+                    if (maxHueCanApply && maxSatCanApply && maxValCanApply) {
+                        next.upper.val[0] += diffHue;
+                        next.upper.val[1] += diffSat;
+                        if (diffVal > 0) next.upper.val[2] += diffVal;
+                    }
+                    if ((maxHueCanApply && maxSatCanApply && maxValCanApply) ||
+                            (minHueCanApply && minSatCanApply && minValCanApply))
+                        colors.remove(--index);
+                }
+            }
+
+
+            for(ColorRange d : colors) {
+                Scalar l = d.lower;
+                Scalar u = d.upper;
+                if (l.val[0] == minHue && u.val[0] == maxHue &&
+                        l.val[1] == minSat && u.val[1] == maxSat &&
+                        l.val[2] == minVal && u.val[2] == maxVal) {
                     add = false;
                     break;
                 }
+
             }
             if (!add) return;
-            Dictionary<String, Scalar> dict = new Hashtable<>();
-            dict.put(UPPERKEY, mUpperBound.clone());
-            dict.put(LOWERKEY, mLowerBound.clone());
-            colors.add(dict);
+            colors.add(new ColorRange(upper, lower));
+            if (colors.size() == 16)
+                colors.remove(0);
         }
     }
 
@@ -95,8 +159,8 @@ public class ColorBlobDetector {
 
         List<MatOfPoint> contours = new ArrayList<>();
         synchronized (colors) {
-            for (Dictionary<String, Scalar> bounds : colors) {
-                Core.inRange(mHsvMat, bounds.get(LOWERKEY), bounds.get(UPPERKEY), mMask);
+            for (ColorRange bounds : colors) {
+                Core.inRange(mHsvMat, bounds.lower, bounds.upper, mMask);
                 Imgproc.dilate(mMask, mDilatedMask, new Mat());
                 Imgproc.findContours(mDilatedMask, contours, mHierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE);
             }
