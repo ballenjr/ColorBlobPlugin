@@ -3,5 +3,5 @@ repositories{
 }
 
 dependencies {
-   compile('com.github.ballenjr:OpenCV-3.1.0-Android:Latest-Master-SNAPSHOT')
+   compile('com.github.ballenjr:OpenCV-3.1.0-Android:HackUps-SNAPSHOT')
 }

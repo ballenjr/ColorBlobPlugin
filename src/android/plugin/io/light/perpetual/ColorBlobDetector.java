@@ -34,6 +34,9 @@ public class ColorBlobDetector {
     private Scalar mColorRadius = new Scalar(10,25,25,0);
     //private Mat mSpectrum = new Mat();
     private List<MatOfPoint> mContours = new ArrayList<>();
+    private int maxColorRanges = 15;
+
+    private final int MAXCOLORRANGES = 20;
 
     // Cache
     Mat mPyrDownMat = new Mat();
@@ -46,10 +49,18 @@ public class ColorBlobDetector {
         mColorRadius = radius;
     }
 
+    public void setMaxColorRanges(int number) {
+        if (number > MAXCOLORRANGES)
+            maxColorRanges = MAXCOLORRANGES;
+        else maxColorRanges = number;
+    }
+
     private List<ColorRange> colors = new ArrayList<>();
 
     public void resetColors() {
-        colors.clear();
+        synchronized (colors) {
+            colors.clear();
+        }
     }
 
     private class ColorRange extends Object implements Comparable<ColorRange> {
@@ -142,7 +153,7 @@ public class ColorBlobDetector {
             }
             if (!add) return;
             colors.add(new ColorRange(upper, lower));
-            if (colors.size() == 16)
+            if (colors.size() == maxColorRanges + 1)
                 colors.remove(0);
         }
     }

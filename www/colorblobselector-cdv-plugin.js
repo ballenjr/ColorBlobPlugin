@@ -35,18 +35,40 @@ function nodeInsertedHandler(e) {
     }
 }
 
-function nodeRemovedHandler(e) {
+function nodeRemovedHandler(e, done) {
     e = e.target || e;
     var idx = elementsToTrack.indexOf(e);
     if (idx > -1)
         exec(function(){
             elementsToTrack.splice(idx, 1);
+            if (!!done) done();
         }, function(){}, PLUGIN_NAME, 'untrackbox', [idx])
 }
+
+var observer = new MutationObserver(function(mutations) {
+    for(var m in mutations) {
+        var target = mutations[m].target;
+        if (mutations[m].attributeName == "style" || 
+            mutations[m].attributeName == "class") {
+            var style = getComputedStyle(target);
+            if (style.getPropertyValue("display") == "none" ||
+                style.getPropertyValue("visibility") == "hidden" ||
+                style.getPropertyValue("opacity") == "0")
+                nodeRemovedHandler(target);
+            else if (elementsToTrack.indexOf(target) == -1)
+                nodeInsertedHandler(target);
+            else
+                nodeRemovedHandler(target, function() {
+                    nodeInsertedHandler(target);
+                });
+        }
+    }
+});
 
 function startTracking() {
     document.addEventListener("DOMNodeRemoved", nodeRemovedHandler);
     document.addEventListener("DOMNodeInserted", nodeInsertedHandler);
+    observer.observe(document.body, { subtree: true, attributes: true });
     var all = document.querySelectorAll("*");
     all.forEach(nodeInsertedHandler);
 }
@@ -66,6 +88,7 @@ window.addEventListener("resize", function(){
 function stopTrackingAll(done) {
     exec(function(){
         elementsToTrack = [];
+        observer.disconnect();
         if (!!done) done();
     },function(){},
         PLUGIN_NAME,"untrackall",[]);
@@ -108,8 +131,36 @@ function getDescriptors(success, error) {
     exec(success, error, PLUGIN_NAME, "getDescriptors", []);
 }
 
+function setMaxFeaturesToDetect(num) {
+    exec(function(){},function(){},PLUGIN_NAME,"setMaxFeaturesToDetect",[num])
+}
+
+function setMaxColors(num) {
+    exec(function(){},function(){},PLUGIN_NAME,"setMaxColors",[num])
+}
+
+function setSnapShot() {
+    exec(function(){},function(){},PLUGIN_NAME,"setSnapShot",[])
+}
+
+function clearSnapShot() {
+    exec(function(){},function(){},PLUGIN_NAME,"clearSnapShot",[])
+}
+
+function resetSelection() {
+    exec(function(){},function(){},PLUGIN_NAME,"resetSelection",[])
+}
+
+function setSelectionColor(red, green, blue) {
+    exec(function(){},function(){},PLUGIN_NAME,"setSelectionColor",[red,green,blue])
+}
+
+function setColorRadius(hue, saturation, value) {
+    exec(function(){},function(){},PLUGIN_NAME,"setColorRadius",[hue,saturation,value])
+}
+
 document.querySelectorAll("button")[0].addEventListener("click", function() {
-    getDataURL(function(data) {
+    setSnapShot(function(data) {
         console.log(data);
     }, function(err) {
         console.error(err);
@@ -120,5 +171,11 @@ module.exports = {
     show: show,
     close: close,
     getDataURL: getDataURL,
-    getDescriptors: getDescriptors
+    setSnapShot: setSnapShot,
+    setMaxColors: setMaxColors,
+    setColorRadius: setColorRadius,
+    resetSelection: resetSelection,
+    getDescriptors: getDescriptors,
+    setSelectionColor: setSelectionColor,
+    setMaxFeaturesToDetect: setMaxFeaturesToDetect
 }

@@ -7,6 +7,8 @@ import android.graphics.Color;
 import android.util.Base64;
 import android.util.Log;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
+import android.view.ScaleGestureDetector.SimpleOnScaleGestureListener;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.ViewGroup;
@@ -27,17 +29,21 @@ import org.opencv.core.Core;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
+import org.opencv.core.MatOfKeyPoint;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.Point;
 import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
+import org.opencv.features2d.ORBFeatureProcessor;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
+import org.opencv.utils.Converters;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
@@ -48,11 +54,13 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
 
     private static CordovaInterface _cordova;
     private static CordovaWebView _webView;
-    private static List<Integer> lock = new ArrayList<>();
+    private static final List<Integer> lock = new ArrayList<>();
 
     private boolean mIsColorSelected = false;
     private Mat mRgba;
     private Mat lastFrame;
+    private Mat snapShot;
+    private Mat resizedSnapShot;
     private Mat toShow;
     private Scalar mBlobColorRgba;
     private Scalar mBlobColorHsv;
@@ -60,11 +68,28 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
     private Mat mSpectrum;
     private Size SPECTRUM_SIZE;
     private Scalar CONTOUR_COLOR;
+    private float zoomFactor = 1.0F;
 
     private CameraBridgeViewBase mOpenCvCameraView;
     private ViewGroup frame;
     private int orientation;
     private List<android.graphics.Rect> hitBoxes = new ArrayList<>();
+
+    private class ZoomListener extends ScaleGestureDetector.
+            SimpleOnScaleGestureListener {
+        @Override
+        public boolean onScale(ScaleGestureDetector detector) {
+            float scaleFactor = detector.getScaleFactor();
+            scaleFactor = Math.max(0.1f, Math.min(scaleFactor, 5.0f));
+            zoomFactor = scaleFactor;
+            mDetector.resetColors();
+            return super.onScale(detector);
+        }
+    };
+
+    private ScaleGestureDetector zoomDetector;
+
+    private int MAXFEATURESTODETECT = 256;
 
     @Override
     public void onResume(boolean multitasking) {
@@ -77,6 +102,7 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
                     case LoaderCallbackInterface.SUCCESS:
                     {
                         Log.i(TAG, "OpenCV loaded successfully");
+                        if (mOpenCvCameraView == null) return;
                         mOpenCvCameraView.enableView();
                         mOpenCvCameraView.setOnTouchListener(ColorBlobPlugin.this);
                     } break;
@@ -93,6 +119,10 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
         } else {
             Log.d(TAG, "OpenCV library found inside package. Using it!");
             loader.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+        }
+        if (zoomDetector == null) {
+            zoomDetector = new ScaleGestureDetector(_cordova.getActivity().getApplication(), new ZoomListener());
+            zoomDetector.setQuickScaleEnabled(true);
         }
     }
 
@@ -130,6 +160,9 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
     }
 
     public boolean onTouch(View v, MotionEvent event) {
+        zoomDetector.onTouchEvent(event);
+//        if (zoomDetector.onTouchEvent(event))
+//            return false;
         int cols = mRgba.cols();
         int rows = mRgba.rows();
 
@@ -151,7 +184,11 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
         touchedRect.width = (x+4 < cols) ? x + 4 - touchedRect.x : cols - touchedRect.x;
         touchedRect.height = (y+4 < rows) ? y + 4 - touchedRect.y : rows - touchedRect.y;
 
-        Mat touchedRegionRgba = mRgba.submat(touchedRect);
+        Mat touchedRegionRgba;
+        if (resizedSnapShot == null)
+            touchedRegionRgba = mRgba.submat(touchedRect);
+        else
+            touchedRegionRgba = resizedSnapShot.submat(touchedRect);
 
         Mat touchedRegionHsv = new Mat();
         Imgproc.cvtColor(touchedRegionRgba, touchedRegionHsv, Imgproc.COLOR_RGB2HSV_FULL);
@@ -179,8 +216,8 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
         return true; // don't need subsequent touch events
     }
 
-    private int c = 0;
     public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
+
         mRgba = inputFrame.rgba();
         if (lastFrame != null) {
             lastFrame.release();
@@ -189,15 +226,50 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
         synchronized (lastFrame) {
             Imgproc.cvtColor(mRgba, lastFrame, Imgproc.COLOR_RGBA2RGB);
         }
-
-        if (toShow == null)
-            if (mIsColorSelected) {
+        Mat snap = null;
+        Mat resize = null;
+        if (snapShot == null) {
+            resize = mRgba;
+        }
+        else {
+            resize = snap = resizedSnapShot = snapShot.clone();
+        }
+        if (zoomFactor > 1F) {
+            Size size = resize.size();
+            int zx = (int) Math.floor(size.width * zoomFactor);
+            int zy = (int) Math.floor(size.height * zoomFactor);
+            if (zx % 2 != 0) zx -= 1;
+            if (zy % 2 != 0) zy -= 1;
+            Imgproc.resize(resize, resize, new Size(zx, zy));
+            Size now = resize.size();
+            Rect roi = new Rect(
+                    (int) (now.width - size.width) / 2,
+                    (int) (now.height - size.height) / 2,
+                    (int) size.width,
+                    (int) size.height
+            );
+            if (roi.x % 2 != 0) roi.x -= 1;
+            if (roi.y % 2 != 0) roi.y -= 1;
+            if (snapShot == null)
+                mRgba = resize.submat(roi);
+            else
+                snap = resizedSnapShot = resize.submat(roi);
+        }
+        if (toShow == null) {
+            if (snap != null && mIsColorSelected) {
+                mDetector.process(snap);
+                List<MatOfPoint> contours = mDetector.getContours();
+                //Log.e(TAG, "Contours count: " + contours.size());
+                Imgproc.drawContours(snap, contours, -1, CONTOUR_COLOR);
+                return snap;
+            } else if (snap != null) {
+                return snap;
+            } else if (mIsColorSelected) {
                 mDetector.process(mRgba);
                 List<MatOfPoint> contours = mDetector.getContours();
                 //Log.e(TAG, "Contours count: " + contours.size());
                 Imgproc.drawContours(mRgba, contours, -1, CONTOUR_COLOR);
             } else {
-                //Imgproc.circle(mRgba, new Point(mRgba.width() / 2, mRgba.height() / 2), mRgba.width() / 5, new Scalar(255, 255, 255), -1);
                 MatOfPoint corners = new MatOfPoint();
                 Mat gray = new Mat();
                 Imgproc.cvtColor(mRgba, gray, Imgproc.COLOR_RGBA2GRAY);
@@ -206,11 +278,8 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
                 Rect focused = Imgproc.boundingRect(corners);
                 corners.release();
                 Imgproc.rectangle(mRgba, new Point(focused.x, focused.y), new Point(focused.x + focused.width, focused.y + focused.height), CONTOUR_COLOR);
-            /*Mat mask = new Mat(mRgba.size(), CvType.CV_8UC1);
-            mask.zeros(mask.size(), mask.type());
-            Imgproc.circle(mask, new Point(mask.width()/2,mask.height()/2), 100, new Scalar(255), -1);
-            gray.copyTo(mRgba, mask);*/
             }
+        }
 
         if (toShow != null) {
             while(mRgba.width() != toShow.width() || mRgba.height() != toShow.height())
@@ -272,6 +341,31 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
                 }
             }
 
+            private void setColorRadius() throws JSONException {
+                mDetector.setColorRadius(new Scalar(
+                        args.getDouble(0),
+                        args.getDouble(1),
+                        args.getDouble(2),
+                        0
+                ));
+            }
+
+            private void setMaxColors() throws JSONException {
+                mDetector.setMaxColorRanges(args.getInt(0));
+            }
+
+            private void setMaxFeaturesToDetect() throws JSONException {
+                MAXFEATURESTODETECT = args.getInt(0);
+            }
+
+            private void setSelectionColor() throws JSONException {
+                CONTOUR_COLOR = new Scalar(
+                        args.getInt(0),
+                        args.getInt(1),
+                        args.getInt(2)
+                );
+            }
+
             private void trackbox() throws JSONException {
                 hitBoxes.add(new android.graphics.Rect(
                         args.getInt(0),
@@ -293,16 +387,17 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
             }
 
             private void resetselection() {
-                if (toShow == null)
+                mIsColorSelected = false;
+                if (toShow == null) {
                     if (mDetector != null)
                         mDetector.resetColors();
-                    else
-                        synchronized (toShow) {
-                            toShow.release();
-                            toShow = null;
-                            if (mDetector != null)
-                                mDetector.resetColors();
-                        }
+                } else
+                    synchronized (toShow) {
+                        toShow.release();
+                        toShow = null;
+                        if (mDetector != null)
+                            mDetector.resetColors();
+                    }
             }
 
             private void show() {
@@ -371,6 +466,10 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
             }
 
             private void getDataURL() throws Exception {
+                this.getDataURL(false);
+            }
+
+            private Mat getDataURL(boolean isInternal) throws Exception {
                 //synchronized (lock) {
                 List<MatOfPoint> contours = mDetector.getContours();
                 Mat last;
@@ -422,6 +521,8 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
                     }
                 }, 5000);
 
+                if (isInternal) return initialMask;
+
                 MatOfByte buf = new MatOfByte();
                 Mat bgr = new Mat();
                 Imgproc.cvtColor(foreground, bgr, Imgproc.COLOR_RGBA2BGRA);
@@ -436,6 +537,46 @@ public class ColorBlobPlugin extends CordovaPlugin implements View.OnTouchListen
                 buf.release();
                 foreground.release();
                 //}
+                return null;
+            }
+
+            private void setSnapShot() {
+                snapShot = lastFrame.clone();
+                zoomFactor = 1.0F;
+            }
+
+            private void clearSnapShot() {
+                snapShot = resizedSnapShot = null;
+                zoomFactor = 1.0F;
+            }
+
+            private void getDescriptors() throws Exception {
+                long start = System.currentTimeMillis();
+                Mat last = lastFrame.clone();
+                Mat mask = this.getDataURL(true);
+                ORBFeatureProcessor orb = ORBFeatureProcessor.create();
+                orb.setMaxFeatures(MAXFEATURESTODETECT);
+                MatOfKeyPoint kp = new MatOfKeyPoint();
+                Mat des = new Mat();
+                orb.detectAndCompute(last, mask, kp, des);
+                if (des.rows() < MAXFEATURESTODETECT)
+                    throw new Exception("Not enough data to describe...");
+                JSONArray json = new JSONArray(des.dump());
+                byte[] buf = new byte[json.length()];
+                for(int i = 0; i < json.length(); i++)
+                    buf[i] = (byte) json.getInt(i);
+                String base64 = Base64.encodeToString(buf, Base64.DEFAULT | Base64.NO_WRAP);
+                callbackContext.success(base64);
+            }
+
+            private String getHash(Mat roi) {
+                roi = roi.clone();
+                Imgproc.resize(roi, roi new Size(8, 8));
+                Imgproc.cvtColor(roi, roi, Imgproc.COLOR_RGB2GRAY);
+                avg = reduce(lambda x, y: x + y, im.getdata()) / 64.
+                return reduce(lambda x, (y, z): x | (z << y),
+                        enumerate(map(lambda i: 0 if i < avg else 1, im.getdata())),
+                0)
             }
 
         });
